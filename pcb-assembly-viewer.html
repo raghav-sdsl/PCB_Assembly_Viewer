@@ -1,0 +1,1441 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>PCB Assembly Viewer</title>
+<style>
+  :root {
+    --bg: #14181a;
+    --panel: #1b2123;
+    --panel-2: #20272a;
+    --border: #2b3437;
+    --text: #e7e9e5;
+    --text-dim: #98a29c;
+    --text-faint: #616b66;
+    --accent: #c98a4b;
+    --accent-dim: #8a6238;
+    --ok: #6fc98a;
+    --warn: #e0b34d;
+    --bad: #d9724f;
+    --board-bg: #0b3626;
+    --board-edge: #e7e9e5;
+    --pad-f: #d7a35c;
+    --pad-b: #7fb0d6;
+    --mono: ui-monospace, "SFMono-Regular", "IBM Plex Mono", Menlo, Consolas, "Liberation Mono", monospace;
+    --sans: -apple-system, "Segoe UI", "IBM Plex Sans", Inter, Roboto, Helvetica, Arial, sans-serif;
+  }
+  :root:not([data-theme="light"]) {
+    color-scheme: dark;
+  }
+  @media (prefers-color-scheme: light) {
+    :root:not([data-theme="dark"]) {
+      --bg: #eef0ea;
+      --panel: #ffffff;
+      --panel-2: #f4f5f0;
+      --border: #d7dbd1;
+      --text: #1c211d;
+      --text-dim: #566056;
+      --text-faint: #8b948a;
+      --accent: #a5642c;
+      --accent-dim: #c98a4b;
+    }
+  }
+  :root[data-theme="light"] {
+    --bg: #eef0ea;
+    --panel: #ffffff;
+    --panel-2: #f4f5f0;
+    --border: #d7dbd1;
+    --text: #1c211d;
+    --text-dim: #566056;
+    --text-faint: #8b948a;
+    --accent: #a5642c;
+    --accent-dim: #c98a4b;
+  }
+
+  * { box-sizing: border-box; }
+  html, body { height: 100%; }
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--text);
+    font-family: var(--sans);
+    overflow: hidden;
+  }
+
+  #app {
+    display: grid;
+    grid-template-rows: auto 1fr;
+    height: 100vh;
+    height: 100dvh;
+  }
+
+  header {
+    display: flex;
+    align-items: center;
+    gap: 18px;
+    padding: 12px 18px;
+    background: var(--panel);
+    border-bottom: 1px solid var(--border);
+    flex-wrap: wrap;
+  }
+  header h1 {
+    font-size: 15px;
+    font-weight: 600;
+    letter-spacing: 0.01em;
+    margin: 0;
+    white-space: nowrap;
+  }
+  header h1 span { color: var(--accent); }
+
+  .filebar { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+  .filebtn {
+    position: relative;
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    padding: 7px 12px;
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    background: var(--panel-2);
+    cursor: pointer;
+    min-width: 150px;
+  }
+  .filebtn:hover { border-color: var(--accent-dim); }
+  .filebtn .lbl {
+    font-size: 10.5px;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    color: var(--text-faint);
+  }
+  .filebtn .fname {
+    font-family: var(--mono);
+    font-size: 12px;
+    color: var(--text);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    max-width: 220px;
+  }
+  .filebtn.loaded { border-color: var(--ok); }
+  .filebtn.error { border-color: var(--bad); }
+  .filebtn input[type=file] {
+    position: absolute; inset: 0; opacity: 0; cursor: pointer; width: 100%; height: 100%;
+  }
+  .filebtn .dot {
+    position: absolute; top: 7px; right: 8px; width: 6px; height: 6px; border-radius: 50%;
+    background: var(--text-faint);
+  }
+  .filebtn.loaded .dot { background: var(--ok); }
+  .filebtn.error .dot { background: var(--bad); }
+
+  .theme-toggle {
+    margin-left: auto;
+    display: flex;
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    overflow: hidden;
+  }
+  .theme-toggle button {
+    background: var(--panel-2);
+    border: none;
+    color: var(--text-dim);
+    font-size: 11px;
+    padding: 6px 10px;
+    cursor: pointer;
+    font-family: var(--sans);
+  }
+  .theme-toggle button.active { background: var(--accent); color: #16110a; }
+
+  #main {
+    display: grid;
+    grid-template-columns: 320px 1fr;
+    min-height: 0;
+  }
+  @media (max-width: 760px) {
+    #main { grid-template-columns: 1fr; grid-template-rows: 45vh 1fr; }
+  }
+
+  #sidebar {
+    background: var(--panel);
+    border-right: 1px solid var(--border);
+    display: flex;
+    flex-direction: column;
+    min-height: 0;
+  }
+
+  .side-section {
+    padding: 12px 14px;
+    border-bottom: 1px solid var(--border);
+  }
+  .side-section h2 {
+    font-size: 10.5px;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    color: var(--text-faint);
+    margin: 0 0 9px 0;
+    font-weight: 600;
+  }
+
+  #search {
+    width: 100%;
+    padding: 7px 9px;
+    background: var(--panel-2);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    color: var(--text);
+    font-family: var(--mono);
+    font-size: 12.5px;
+  }
+  #search:focus { outline: none; border-color: var(--accent-dim); }
+
+  .toggles { display: flex; gap: 14px; margin-top: 10px; flex-wrap: wrap; }
+  .toggles label { display: flex; align-items: center; gap: 6px; font-size: 12.5px; color: var(--text-dim); cursor: pointer; }
+  .toggles input { accent-color: var(--accent); }
+
+  .legend { display: flex; flex-direction: column; gap: 6px; margin-top: 10px; }
+  .legend-row { display: flex; align-items: center; gap: 8px; font-size: 12px; color: var(--text-dim); }
+  .swatch { width: 10px; height: 10px; border-radius: 2px; flex: none; }
+
+  #comp-list {
+    flex: 1;
+    overflow-y: auto;
+    min-height: 0;
+  }
+  .comp-row {
+    display: flex;
+    justify-content: space-between;
+    gap: 8px;
+    padding: 7px 14px;
+    border-bottom: 1px solid var(--border);
+    cursor: pointer;
+    font-size: 12.5px;
+  }
+  .comp-row:hover { background: var(--panel-2); }
+  .comp-row.selected { background: var(--panel-2); box-shadow: inset 2px 0 0 var(--accent); }
+  .comp-row .ref { font-family: var(--mono); font-weight: 600; }
+  .comp-row .val { color: var(--text-dim); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; text-align: right; }
+  .status-dot { display: inline-block; width: 7px; height: 7px; border-radius: 50%; margin-right: 7px; }
+  .status-ok { background: var(--ok); }
+  .status-warn { background: var(--warn); }
+  .status-bad { background: var(--bad); }
+
+  #issues {
+    max-height: 30%;
+    overflow-y: auto;
+    border-top: 1px solid var(--border);
+    padding: 12px 14px;
+    font-size: 12px;
+  }
+  #issues h2 { font-size: 10.5px; text-transform: uppercase; letter-spacing: 0.08em; color: var(--text-faint); margin: 0 0 8px 0; }
+  .issue { margin-bottom: 6px; line-height: 1.5; color: var(--text-dim); }
+  .issue b { color: var(--warn); font-family: var(--mono); }
+  .issue.missing b { color: var(--bad); }
+  #issues .none { color: var(--text-faint); font-style: italic; }
+
+  #step-panel {
+    padding: 12px 14px;
+    border-top: 1px solid var(--border);
+    font-size: 12px;
+    color: var(--text-dim);
+    line-height: 1.6;
+  }
+  #step-panel h2 { font-size: 10.5px; text-transform: uppercase; letter-spacing: 0.08em; color: var(--text-faint); margin: 0 0 8px 0; }
+  #step-panel .dims { font-family: var(--mono); color: var(--text); }
+  #step-panel .note { color: var(--text-faint); font-size: 11px; margin-top: 6px; }
+
+  #viewport {
+    position: relative;
+    background: var(--panel-2);
+    overflow: hidden;
+    min-height: 0;
+  }
+
+  #view-tabs {
+    position: absolute; top: 12px; left: 14px; z-index: 6;
+    display: flex; border: 1px solid var(--border); border-radius: 7px; overflow: hidden;
+    background: var(--panel);
+  }
+  .view-tab {
+    background: transparent; border: none; color: var(--text-dim);
+    font-family: var(--sans); font-size: 12px; padding: 7px 13px; cursor: pointer;
+  }
+  .view-tab + .view-tab { border-left: 1px solid var(--border); }
+  .view-tab.active { background: var(--accent); color: #16110a; font-weight: 600; }
+  .view-tab:hover:not(.active) { color: var(--text); }
+
+  .view-pane { position: absolute; inset: 0; display: none; }
+  .view-pane.active { display: block; }
+
+  #board-svg { width: 100%; height: 100%; display: block; cursor: grab; touch-action: none; }
+  #board-svg.dragging { cursor: grabbing; }
+
+  .fp-body { stroke-width: 0.15; cursor: pointer; }
+  .fp-body.ok { fill: rgba(111,201,138,0.28); stroke: var(--ok); }
+  .fp-body.warn { fill: rgba(224,179,77,0.28); stroke: var(--warn); }
+  .fp-body.bad { fill: rgba(217,114,79,0.30); stroke: var(--bad); }
+  .fp-body.selected { stroke-width: 0.35; filter: drop-shadow(0 0 1.2px #fff); }
+  .fp-body.dimmed { opacity: 0.15; }
+  .fp-label { fill: #f2f3ee; font-family: var(--mono); pointer-events: none; }
+  .fp-group.dimmed .fp-label { opacity: 0.15; }
+  .fp-group.side-B .fp-body { stroke-dasharray: 0.4 0.3; }
+
+  #empty-state {
+    position: absolute; inset: 0;
+    display: flex; flex-direction: column; align-items: center; justify-content: center;
+    gap: 10px; color: var(--text-faint); text-align: center; padding: 20px;
+  }
+  #empty-state .big { font-size: 14px; color: var(--text-dim); max-width: 380px; line-height: 1.6; }
+  #empty-state .small { font-size: 12px; max-width: 380px; line-height: 1.6; }
+
+  #zoom-controls, .zoom-controls {
+    position: absolute; bottom: 14px; right: 14px;
+    display: flex; flex-direction: column; gap: 6px; z-index: 4;
+  }
+  #zoom-controls button, .zoom-controls button {
+    width: 30px; height: 30px; border-radius: 6px;
+    background: var(--panel); border: 1px solid var(--border); color: var(--text);
+    font-size: 15px; cursor: pointer;
+  }
+  #zoom-controls button:hover, .zoom-controls button:hover { border-color: var(--accent-dim); }
+
+  #coord-readout {
+    position: absolute; bottom: 14px; left: 14px;
+    font-family: var(--mono); font-size: 11px; color: var(--text-dim);
+    background: var(--panel); border: 1px solid var(--border); border-radius: 6px;
+    padding: 5px 9px;
+  }
+
+  #tooltip {
+    position: absolute; pointer-events: none;
+    background: var(--panel); border: 1px solid var(--border); border-radius: 6px;
+    padding: 8px 10px; font-size: 12px; line-height: 1.55; color: var(--text);
+    max-width: 240px; z-index: 5; display: none;
+  }
+  #tooltip .t-ref { font-family: var(--mono); font-weight: 700; color: var(--accent); }
+  #tooltip .t-row { color: var(--text-dim); }
+
+  ::-webkit-scrollbar { width: 9px; height: 9px; }
+  ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 5px; }
+  ::-webkit-scrollbar-track { background: transparent; }
+
+  .viewer3d-canvas-wrap {
+    position: absolute; inset: 0;
+    background: #1b2123;
+  }
+  .viewer3d-canvas-wrap canvas { display: block; width: 100%; height: 100%; }
+  .viewer3d-status {
+    position: absolute; inset: 0;
+    display: flex; align-items: center; justify-content: center;
+    color: var(--text-dim); font-size: 13px; text-align: center; padding: 20px 60px;
+    z-index: 3;
+  }
+  .viewer3d-hint {
+    position: absolute; bottom: 14px; left: 14px; right: 60px; z-index: 4;
+    font-size: 11px; color: var(--text-faint);
+    background: var(--panel); border: 1px solid var(--border); border-radius: 6px;
+    padding: 6px 10px;
+  }
+</style>
+</head>
+<body>
+<div id="app">
+  <header>
+    <h1>PCB <span>Assembly</span> Viewer</h1>
+    <div class="filebar">
+      <label class="filebtn" id="btn-pcb">
+        <span class="dot"></span>
+        <span class="lbl">KiCad PCB</span>
+        <span class="fname">.kicad_pcb file&hellip;</span>
+        <input type="file" id="input-pcb" accept=".kicad_pcb,.kicad_pcb.txt" />
+      </label>
+      <label class="filebtn" id="btn-bom">
+        <span class="dot"></span>
+        <span class="lbl">BOM</span>
+        <span class="fname">.csv file&hellip;</span>
+        <input type="file" id="input-bom" accept=".csv,.tsv,.txt" />
+      </label>
+      <label class="filebtn" id="btn-step">
+        <span class="dot"></span>
+        <span class="lbl">STEP model (optional)</span>
+        <span class="fname">.step / .stp&hellip;</span>
+        <input type="file" id="input-step" accept=".step,.stp" />
+      </label>
+    </div>
+    <div class="theme-toggle">
+      <button data-theme="dark">Dark</button>
+      <button data-theme="light">Light</button>
+    </div>
+  </header>
+
+  <div id="main">
+    <aside id="sidebar">
+      <div class="side-section">
+        <h2>Find</h2>
+        <input id="search" type="text" placeholder="reference or value, e.g. R12, 10k" />
+        <div class="toggles">
+          <label><input type="checkbox" id="tog-top" checked /> Top (F.Cu)</label>
+          <label><input type="checkbox" id="tog-bottom" checked /> Bottom (B.Cu)</label>
+          <label><input type="checkbox" id="tog-labels" checked /> Labels</label>
+        </div>
+        <div class="legend">
+          <div class="legend-row"><span class="swatch" style="background:var(--ok)"></span> matched to one BOM line</div>
+          <div class="legend-row"><span class="swatch" style="background:var(--warn)"></span> matched to multiple BOM lines</div>
+          <div class="legend-row"><span class="swatch" style="background:var(--bad)"></span> no BOM match found</div>
+        </div>
+      </div>
+
+      <div class="side-section" style="padding:0; flex:1; display:flex; flex-direction:column; min-height:120px; border-bottom:none;">
+        <h2 style="padding:12px 14px 0 14px;">Components <span id="comp-count" style="color:var(--text-faint); font-weight:400;"></span></h2>
+        <div id="comp-list"></div>
+      </div>
+
+      <div id="issues">
+        <h2>Assembly checks</h2>
+        <div id="issues-body" class="none">Load a PCB file and BOM to check for mismatches.</div>
+      </div>
+
+      <div id="step-panel">
+        <h2>STEP model</h2>
+        <div id="step-body" class="note">No STEP file loaded.</div>
+      </div>
+    </aside>
+
+    <div id="viewport">
+      <div id="view-tabs">
+        <button id="tab-2d" class="view-tab active">2D Board</button>
+        <button id="tab-3d" class="view-tab">3D Model</button>
+      </div>
+
+      <div id="view-2d" class="view-pane active">
+        <svg id="board-svg" viewBox="0 0 200 150" xmlns="http://www.w3.org/2000/svg">
+          <g id="board-outline"></g>
+          <g id="fp-layer"></g>
+        </svg>
+        <div id="empty-state">
+          <div class="big">Load a <b>.kicad_pcb</b> file to see the board and component placement.</div>
+          <div class="small">Add a BOM (.csv) to cross-check every reference designator against the board, and optionally a STEP file to render and orbit in 3D. Everything is parsed locally in your browser &mdash; nothing is uploaded anywhere.</div>
+        </div>
+        <div id="zoom-controls">
+          <button id="zoom-in" title="Zoom in">+</button>
+          <button id="zoom-out" title="Zoom out">&minus;</button>
+          <button id="zoom-fit" title="Fit to board">&#9633;</button>
+        </div>
+        <div id="coord-readout">&mdash;</div>
+        <div id="tooltip"></div>
+      </div>
+
+      <div id="view-3d" class="view-pane">
+        <div id="viewer3d-canvas-wrap" class="viewer3d-canvas-wrap">
+          <div id="viewer3d-status" class="viewer3d-status">Load a STEP file to see it here.</div>
+        </div>
+        <div id="viewer3d-zoom-controls" class="zoom-controls">
+          <button id="viewer3d-fit" title="Reset view">&#9633;</button>
+        </div>
+        <div id="viewer3d-match-note" class="viewer3d-hint" style="display:none;"></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+(function () {
+  "use strict";
+
+  // ---------- theme ----------
+  const themeButtons = document.querySelectorAll(".theme-toggle button");
+  function setTheme(t) {
+    if (t) document.documentElement.setAttribute("data-theme", t);
+    else document.documentElement.removeAttribute("data-theme");
+    themeButtons.forEach(b => b.classList.toggle("active", b.dataset.theme === t));
+  }
+  themeButtons.forEach(b => b.addEventListener("click", () => setTheme(b.dataset.theme)));
+
+  // ---------- S-expression parser (for .kicad_pcb) ----------
+  function parseSexp(text) {
+    let i = 0;
+    const n = text.length;
+    function skipWs() { while (i < n && /\s/.test(text[i])) i++; }
+    function parseAtom() {
+      const start = i;
+      while (i < n && !/[\s()]/.test(text[i])) i++;
+      return text.slice(start, i);
+    }
+    function parseString() {
+      i++; // opening quote
+      let out = "";
+      while (i < n && text[i] !== '"') {
+        if (text[i] === "\\" && i + 1 < n) { out += text[i + 1]; i += 2; }
+        else { out += text[i]; i++; }
+      }
+      i++; // closing quote
+      return out;
+    }
+    function parseList() {
+      i++; // (
+      const list = [];
+      while (true) {
+        skipWs();
+        if (i >= n) break;
+        if (text[i] === ")") { i++; break; }
+        if (text[i] === "(") list.push(parseList());
+        else if (text[i] === '"') list.push(parseString());
+        else list.push(parseAtom());
+      }
+      return list;
+    }
+    skipWs();
+    if (text[i] === "(") return parseList();
+    return null;
+  }
+
+  function directChildren(node, tag) {
+    if (!Array.isArray(node)) return [];
+    return node.filter(x => Array.isArray(x) && x[0] === tag);
+  }
+  function directChild(node, tag) {
+    const c = directChildren(node, tag);
+    return c.length ? c[0] : null;
+  }
+  function num(v, fallback) {
+    const f = parseFloat(v);
+    return isNaN(f) ? (fallback === undefined ? 0 : fallback) : f;
+  }
+
+  // ---------- footprint / board extraction ----------
+  function extractFootprints(tree) {
+    const fpNodes = tree.filter(x => Array.isArray(x) && (x[0] === "footprint" || x[0] === "module"));
+    return fpNodes.map(fp => {
+      const name = typeof fp[1] === "string" ? fp[1] : (typeof fp[2] === "string" ? fp[2] : "");
+      const atNode = directChild(fp, "at");
+      const x = atNode ? num(atNode[1]) : 0;
+      const y = atNode ? num(atNode[2]) : 0;
+      const rot = atNode ? num(atNode[3]) : 0;
+      const layerNode = directChild(fp, "layer");
+      const layer = layerNode ? layerNode[1] : "F.Cu";
+      const side = String(layer).charAt(0) === "B" ? "B" : "F";
+
+      let reference = "";
+      let valueFromPcb = "";
+      for (const p of directChildren(fp, "property")) {
+        if (p[1] === "Reference") reference = p[2];
+        if (p[1] === "Value") valueFromPcb = p[2];
+      }
+      if (!reference || !valueFromPcb) {
+        for (const t of directChildren(fp, "fp_text")) {
+          if (!reference && t[1] === "reference") reference = t[2];
+          if (!valueFromPcb && t[1] === "value") valueFromPcb = t[2];
+        }
+      }
+
+      let bbox = courtyardBBox(fp, side) || padsBBox(fp);
+      if (!bbox) bbox = { minX: -1, minY: -1, maxX: 1, maxY: 1 };
+
+      return { name, x, y, rot, side, reference: reference || "?", valueFromPcb, bbox };
+    }).filter(f => f.reference && f.reference !== "?");
+  }
+
+  function courtyardBBox(fp, side) {
+    const crtLayer = side === "B" ? "B.CrtYd" : "F.CrtYd";
+    const pts = [];
+    for (const tag of ["fp_line", "fp_rect", "fp_poly", "fp_circle"]) {
+      for (const el of directChildren(fp, tag)) {
+        const layerNode = directChild(el, "layer");
+        if (!layerNode || layerNode[1] !== crtLayer) continue;
+        if (tag === "fp_line" || tag === "fp_rect") {
+          const s = directChild(el, "start"), e = directChild(el, "end");
+          if (s) pts.push([num(s[1]), num(s[2])]);
+          if (e) pts.push([num(e[1]), num(e[2])]);
+        } else if (tag === "fp_poly") {
+          const ptsNode = directChild(el, "pts");
+          if (ptsNode) for (const xy of directChildren(ptsNode, "xy")) pts.push([num(xy[1]), num(xy[2])]);
+        } else if (tag === "fp_circle") {
+          const c = directChild(el, "center"), e = directChild(el, "end");
+          if (c && e) {
+            const r = Math.hypot(num(e[1]) - num(c[1]), num(e[2]) - num(c[2]));
+            pts.push([num(c[1]) - r, num(c[2]) - r], [num(c[1]) + r, num(c[2]) + r]);
+          }
+        }
+      }
+    }
+    if (!pts.length) return null;
+    const xs = pts.map(p => p[0]), ys = pts.map(p => p[1]);
+    return { minX: Math.min(...xs), maxX: Math.max(...xs), minY: Math.min(...ys), maxY: Math.max(...ys) };
+  }
+
+  function padsBBox(fp) {
+    const pads = directChildren(fp, "pad");
+    if (!pads.length) return null;
+    let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+    for (const pad of pads) {
+      const at = directChild(pad, "at");
+      const size = directChild(pad, "size");
+      if (!at || !size) continue;
+      const px = num(at[1]), py = num(at[2]);
+      const w = num(size[1], 0.6), h = num(size[2], 0.6);
+      const halfDiag = Math.hypot(w, h) / 2;
+      minX = Math.min(minX, px - halfDiag); maxX = Math.max(maxX, px + halfDiag);
+      minY = Math.min(minY, py - halfDiag); maxY = Math.max(maxY, py + halfDiag);
+    }
+    if (!isFinite(minX)) return null;
+    return { minX, minY, maxX, maxY };
+  }
+
+  function extractBoardEdges(tree) {
+    const segments = [];
+    const circles = [];
+    const pts = [];
+    for (const el of tree) {
+      if (!Array.isArray(el)) continue;
+      const tag = el[0];
+      if (!["gr_line", "gr_rect", "gr_poly", "gr_arc", "gr_circle"].includes(tag)) continue;
+      const layerNode = directChild(el, "layer");
+      if (!layerNode || layerNode[1] !== "Edge.Cuts") continue;
+      if (tag === "gr_line" || tag === "gr_arc") {
+        const s = directChild(el, "start"), e = directChild(el, "end");
+        if (s && e) {
+          const seg = { x1: num(s[1]), y1: num(s[2]), x2: num(e[1]), y2: num(e[2]) };
+          segments.push(seg); pts.push([seg.x1, seg.y1], [seg.x2, seg.y2]);
+        }
+      } else if (tag === "gr_rect") {
+        const s = directChild(el, "start"), e = directChild(el, "end");
+        if (s && e) {
+          const x1 = num(s[1]), y1 = num(s[2]), x2 = num(e[1]), y2 = num(e[2]);
+          segments.push({ x1, y1, x2, y2: y1 }, { x1: x2, y1, x2, y2 }, { x1: x2, y1: y2, x2: x1, y2 }, { x1, y1: y2, x2: x1, y2: y1 });
+          pts.push([x1, y1], [x2, y2]);
+        }
+      } else if (tag === "gr_poly") {
+        const ptsNode = directChild(el, "pts");
+        if (ptsNode) {
+          const xy = directChildren(ptsNode, "xy").map(p => [num(p[1]), num(p[2])]);
+          for (let i = 0; i < xy.length; i++) {
+            const a = xy[i], b = xy[(i + 1) % xy.length];
+            segments.push({ x1: a[0], y1: a[1], x2: b[0], y2: b[1] });
+          }
+          pts.push(...xy);
+        }
+      } else if (tag === "gr_circle") {
+        const c = directChild(el, "center"), e = directChild(el, "end");
+        if (c && e) {
+          const cx = num(c[1]), cy = num(c[2]);
+          const r = Math.hypot(num(e[1]) - cx, num(e[2]) - cy);
+          circles.push({ cx, cy, r });
+          pts.push([cx - r, cy - r], [cx + r, cy + r]);
+        }
+      }
+    }
+    if (!pts.length) return null;
+    const xs = pts.map(p => p[0]), ys = pts.map(p => p[1]);
+    return { segments, circles, bbox: { minX: Math.min(...xs), maxX: Math.max(...xs), minY: Math.min(...ys), maxY: Math.max(...ys) } };
+  }
+
+  // ---------- BOM CSV parsing ----------
+  function parseCSV(text) {
+    const firstLine = (text.split(/\r?\n/)[0] || "");
+    let delim = ",", maxCount = -1;
+    for (const d of [",", ";", "\t"]) {
+      const c = firstLine.split(d).length;
+      if (c > maxCount) { maxCount = c; delim = d; }
+    }
+    const rows = [];
+    let row = [], field = "", inQuotes = false;
+    for (let i = 0; i < text.length; i++) {
+      const c = text[i];
+      if (inQuotes) {
+        if (c === '"') { if (text[i + 1] === '"') { field += '"'; i++; } else inQuotes = false; }
+        else field += c;
+      } else {
+        if (c === '"') inQuotes = true;
+        else if (c === delim) { row.push(field); field = ""; }
+        else if (c === "\n") { row.push(field); rows.push(row); row = []; field = ""; }
+        else if (c === "\r") { /* skip */ }
+        else field += c;
+      }
+    }
+    if (field.length || row.length) { row.push(field); rows.push(row); }
+    return rows.filter(r => r.some(f => f.trim() !== ""));
+  }
+
+  function expandRefs(field) {
+    if (!field) return [];
+    const parts = field.split(/[,;\s]+/).map(s => s.trim()).filter(Boolean);
+    const out = [];
+    for (const p of parts) {
+      const m = p.match(/^([A-Za-z_]+)(\d+)\s*-\s*(?:[A-Za-z_]+)?(\d+)$/);
+      if (m) {
+        const prefix = m[1], start = parseInt(m[2], 10), end = parseInt(m[3], 10);
+        if (end >= start && end - start < 500) {
+          for (let n = start; n <= end; n++) out.push(prefix + n);
+          continue;
+        }
+      }
+      out.push(p);
+    }
+    return out;
+  }
+
+  function parseBOM(text) {
+    const rows = parseCSV(text);
+    if (!rows.length) return [];
+    const header = rows[0].map(h => h.trim().toLowerCase());
+    const find = (...names) => header.findIndex(h => names.some(n => h.includes(n)));
+    const idx = {
+      ref: find("reference", "designator", "refdes", "ref des", "ref"),
+      value: find("value"),
+      footprint: find("footprint", "package"),
+      mpn: find("mpn", "manufacturer part", "part number", "part no", "part#"),
+      mfr: find("manufacturer", "mfr", "mfg"),
+      desc: find("description", "desc"),
+      qty: find("qty", "quantity"),
+    };
+    const items = [];
+    for (let r = 1; r < rows.length; r++) {
+      const row = rows[r];
+      if (!row || row.every(f => !f || !f.trim())) continue;
+      const refField = idx.ref >= 0 ? row[idx.ref] : "";
+      const refs = expandRefs(refField);
+      items.push({
+        refs,
+        value: idx.value >= 0 ? (row[idx.value] || "").trim() : "",
+        footprint: idx.footprint >= 0 ? (row[idx.footprint] || "").trim() : "",
+        mpn: idx.mpn >= 0 ? (row[idx.mpn] || "").trim() : "",
+        mfr: idx.mfr >= 0 ? (row[idx.mfr] || "").trim() : "",
+        desc: idx.desc >= 0 ? (row[idx.desc] || "").trim() : "",
+        qty: idx.qty >= 0 ? (row[idx.qty] || "").trim() : "",
+      });
+    }
+    const noRefColumn = idx.ref < 0;
+    return { items, noRefColumn };
+  }
+
+  // ---------- STEP bounding-box (approximate) ----------
+  function parseStepBBox(text) {
+    const re = /CARTESIAN_POINT\s*\(\s*'[^']*'\s*,\s*\(([^)]*)\)\s*\)/g;
+    let m, minX = Infinity, minY = Infinity, minZ = Infinity, maxX = -Infinity, maxY = -Infinity, maxZ = -Infinity, count = 0;
+    while ((m = re.exec(text))) {
+      const parts = m[1].split(",").map(s => parseFloat(s.trim()));
+      if (parts.length >= 3 && parts.every(n => !isNaN(n))) {
+        minX = Math.min(minX, parts[0]); maxX = Math.max(maxX, parts[0]);
+        minY = Math.min(minY, parts[1]); maxY = Math.max(maxY, parts[1]);
+        minZ = Math.min(minZ, parts[2]); maxZ = Math.max(maxZ, parts[2]);
+        count++;
+      }
+    }
+    if (!count) return null;
+    let scale = 1, unitLabel = "mm (assumed)";
+    if (/MILLI\s*\(\s*\.METRE\.|MILLIMETRE/i.test(text)) { scale = 1; unitLabel = "mm"; }
+    else if (/\(\s*\.METRE\.\s*\)/i.test(text)) { scale = 1000; unitLabel = "mm (converted from m)"; }
+    return { count, dims: { x: (maxX - minX) * scale, y: (maxY - minY) * scale, z: (maxZ - minZ) * scale }, unitLabel };
+  }
+
+  // ---------- app state ----------
+  const state = {
+    footprints: [],
+    boardEdges: null,
+    bom: null,
+    refToBom: new Map(),
+    unmatchedBoard: [],
+    unplacedBom: [],
+    selectedRef: null,
+    filter: "",
+    stepBytes: null,
+    step3D: null,
+  };
+
+  const svg = document.getElementById("board-svg");
+  const fpLayer = document.getElementById("fp-layer");
+  const outlineLayer = document.getElementById("board-outline");
+  const emptyState = document.getElementById("empty-state");
+  const compList = document.getElementById("comp-list");
+  const compCount = document.getElementById("comp-count");
+  const issuesBody = document.getElementById("issues-body");
+  const stepBody = document.getElementById("step-body");
+  const tooltip = document.getElementById("tooltip");
+  const coordReadout = document.getElementById("coord-readout");
+
+  let viewBox = { x: 0, y: 0, w: 200, h: 150 };
+  function applyViewBox() {
+    svg.setAttribute("viewBox", viewBox.x + " " + viewBox.y + " " + viewBox.w + " " + viewBox.h);
+  }
+  applyViewBox();
+
+  function fitToBoard() {
+    let bbox = state.boardEdges && state.boardEdges.bbox;
+    if (!bbox && state.footprints.length) {
+      const xs = [], ys = [];
+      for (const f of state.footprints) {
+        xs.push(f.x + f.bbox.minX, f.x + f.bbox.maxX);
+        ys.push(f.y + f.bbox.minY, f.y + f.bbox.maxY);
+      }
+      bbox = { minX: Math.min(...xs), maxX: Math.max(...xs), minY: Math.min(...ys), maxY: Math.max(...ys) };
+    }
+    if (!bbox) return;
+    const w = Math.max(bbox.maxX - bbox.minX, 5);
+    const h = Math.max(bbox.maxY - bbox.minY, 5);
+    const pad = Math.max(w, h) * 0.08;
+    const rect = svg.getBoundingClientRect();
+    const aspect = rect.width && rect.height ? rect.width / rect.height : 4 / 3;
+    let vw = w + pad * 2, vh = h + pad * 2;
+    if (vw / vh > aspect) vh = vw / aspect; else vw = vh * aspect;
+    viewBox = { x: bbox.minX - (vw - w) / 2, y: bbox.minY - (vh - h) / 2, w: vw, h: vh };
+    applyViewBox();
+  }
+
+  function statusFor(ref) {
+    const m = state.refToBom.get(ref);
+    if (!m) return "bad";
+    return m.ambiguous ? "warn" : "ok";
+  }
+
+  function render() {
+    fpLayer.innerHTML = "";
+    outlineLayer.innerHTML = "";
+    const ns = "http://www.w3.org/2000/svg";
+
+    if (state.boardEdges) {
+      for (const seg of state.boardEdges.segments) {
+        const line = document.createElementNS(ns, "line");
+        line.setAttribute("x1", seg.x1); line.setAttribute("y1", seg.y1);
+        line.setAttribute("x2", seg.x2); line.setAttribute("y2", seg.y2);
+        line.setAttribute("stroke", "var(--board-edge)");
+        line.setAttribute("stroke-width", "0.3");
+        outlineLayer.appendChild(line);
+      }
+      for (const c of state.boardEdges.circles) {
+        const circle = document.createElementNS(ns, "circle");
+        circle.setAttribute("cx", c.cx); circle.setAttribute("cy", c.cy); circle.setAttribute("r", c.r);
+        circle.setAttribute("fill", "none");
+        circle.setAttribute("stroke", "var(--board-edge)");
+        circle.setAttribute("stroke-width", "0.3");
+        outlineLayer.appendChild(circle);
+      }
+      const bg = document.createElementNS(ns, "rect");
+      const b = state.boardEdges.bbox;
+      bg.setAttribute("x", b.minX); bg.setAttribute("y", b.minY);
+      bg.setAttribute("width", b.maxX - b.minX); bg.setAttribute("height", b.maxY - b.minY);
+      bg.setAttribute("fill", "var(--board-bg)");
+      outlineLayer.insertBefore(bg, outlineLayer.firstChild);
+    }
+
+    const showTop = document.getElementById("tog-top").checked;
+    const showBottom = document.getElementById("tog-bottom").checked;
+    const showLabels = document.getElementById("tog-labels").checked;
+    const filter = state.filter.trim().toLowerCase();
+
+    for (const fp of state.footprints) {
+      if (fp.side === "F" && !showTop) continue;
+      if (fp.side === "B" && !showBottom) continue;
+
+      const bomEntry = state.refToBom.get(fp.reference);
+      const value = bomEntry ? bomEntry.item.value : fp.valueFromPcb;
+      const matchesFilter = !filter || fp.reference.toLowerCase().includes(filter) || (value || "").toLowerCase().includes(filter);
+
+      const g = document.createElementNS(ns, "g");
+      g.setAttribute("class", "fp-group side-" + fp.side + (matchesFilter ? "" : " dimmed"));
+      g.setAttribute("transform", "translate(" + fp.x + "," + fp.y + ") rotate(" + fp.rot + ")");
+      g.dataset.ref = fp.reference;
+
+      const rect = document.createElementNS(ns, "rect");
+      const b = fp.bbox;
+      rect.setAttribute("x", b.minX); rect.setAttribute("y", b.minY);
+      rect.setAttribute("width", Math.max(b.maxX - b.minX, 0.2));
+      rect.setAttribute("height", Math.max(b.maxY - b.minY, 0.2));
+      const status = statusFor(fp.reference);
+      rect.setAttribute("class", "fp-body " + status + (fp.reference === state.selectedRef ? " selected" : "") + (matchesFilter ? "" : " dimmed"));
+      g.appendChild(rect);
+
+      if (showLabels) {
+        const cx = (b.minX + b.maxX) / 2, cy = (b.minY + b.maxY) / 2;
+        const labelG = document.createElementNS(ns, "g");
+        labelG.setAttribute("transform", "translate(" + cx + "," + cy + ") rotate(" + (-fp.rot) + ")");
+        const text = document.createElementNS(ns, "text");
+        text.setAttribute("class", "fp-label");
+        text.setAttribute("text-anchor", "middle");
+        text.setAttribute("dominant-baseline", "middle");
+        const size = Math.max(Math.min(b.maxX - b.minX, b.maxY - b.minY) * 0.6, 1);
+        text.setAttribute("font-size", Math.min(size, 1.6));
+        text.textContent = fp.reference;
+        labelG.appendChild(text);
+        g.appendChild(labelG);
+      }
+
+      g.addEventListener("click", (e) => { e.stopPropagation(); selectRef(fp.reference, false); });
+      g.addEventListener("mouseenter", (e) => showTooltip(fp, bomEntry, value));
+      g.addEventListener("mousemove", positionTooltip);
+      g.addEventListener("mouseleave", hideTooltip);
+
+      fpLayer.appendChild(g);
+    }
+
+    emptyState.style.display = state.footprints.length ? "none" : "flex";
+    sync3DHighlight();
+  }
+
+  function showTooltip(fp, bomEntry, value) {
+    let html = '<div class="t-ref">' + escapeHtml(fp.reference) + '</div>';
+    html += '<div class="t-row">footprint: ' + escapeHtml(fp.name || "&mdash;") + '</div>';
+    html += '<div class="t-row">side: ' + (fp.side === "F" ? "Top (F.Cu)" : "Bottom (B.Cu)") + '</div>';
+    if (value) html += '<div class="t-row">value: ' + escapeHtml(value) + '</div>';
+    if (bomEntry) {
+      if (bomEntry.item.mpn) html += '<div class="t-row">MPN: ' + escapeHtml(bomEntry.item.mpn) + '</div>';
+      if (bomEntry.item.desc) html += '<div class="t-row">' + escapeHtml(bomEntry.item.desc) + '</div>';
+      if (bomEntry.ambiguous) html += '<div class="t-row" style="color:var(--warn)">multiple BOM lines reference this designator</div>';
+    } else if (state.bom) {
+      html += '<div class="t-row" style="color:var(--bad)">no BOM line found for this reference</div>';
+    }
+    tooltip.innerHTML = html;
+    tooltip.style.display = "block";
+  }
+  function hideTooltip() { tooltip.style.display = "none"; }
+  function positionTooltip(e) {
+    const rect = document.getElementById("viewport").getBoundingClientRect();
+    let left = e.clientX - rect.left + 14;
+    let top = e.clientY - rect.top + 14;
+    tooltip.style.left = left + "px";
+    tooltip.style.top = top + "px";
+  }
+  function escapeHtml(s) {
+    return String(s).replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+  }
+
+  function selectRef(ref, focus) {
+    state.selectedRef = ref;
+    render();
+    renderList();
+    if (focus) {
+      const fp = state.footprints.find(f => f.reference === ref);
+      if (fp) {
+        const rect = svg.getBoundingClientRect();
+        const aspect = rect.width && rect.height ? rect.width / rect.height : 4 / 3;
+        const w = Math.max((fp.bbox.maxX - fp.bbox.minX) * 8, 20);
+        let vw = w, vh = w / aspect;
+        viewBox = { x: fp.x - vw / 2, y: fp.y - vh / 2, w: vw, h: vh };
+        applyViewBox();
+      }
+      focus3DOnRef(ref);
+    } else {
+      const row = compList.querySelector('[data-ref="' + CSS.escape(ref) + '"]');
+      if (row) row.scrollIntoView({ block: "nearest" });
+    }
+  }
+
+  function renderList() {
+    const filter = state.filter.trim().toLowerCase();
+    const sorted = [...state.footprints].sort((a, b) => a.reference.localeCompare(b.reference, undefined, { numeric: true }));
+    compList.innerHTML = "";
+    let shown = 0;
+    for (const fp of sorted) {
+      const bomEntry = state.refToBom.get(fp.reference);
+      const value = bomEntry ? bomEntry.item.value : fp.valueFromPcb;
+      if (filter && !fp.reference.toLowerCase().includes(filter) && !(value || "").toLowerCase().includes(filter)) continue;
+      shown++;
+      const row = document.createElement("div");
+      row.className = "comp-row" + (fp.reference === state.selectedRef ? " selected" : "");
+      row.dataset.ref = fp.reference;
+      const status = statusFor(fp.reference);
+      row.innerHTML =
+        '<span class="ref"><span class="status-dot status-' + status + '"></span>' + escapeHtml(fp.reference) + "</span>" +
+        '<span class="val">' + escapeHtml(value || "") + "</span>";
+      row.addEventListener("click", () => selectRef(fp.reference, true));
+      compList.appendChild(row);
+    }
+    compCount.textContent = state.footprints.length ? "(" + shown + "/" + state.footprints.length + ")" : "";
+  }
+
+  function computeMatching() {
+    const refToBom = new Map();
+    if (state.bom) {
+      for (const item of state.bom.items) {
+        for (const r of item.refs) {
+          if (refToBom.has(r)) refToBom.get(r).ambiguous = true;
+          else refToBom.set(r, { item, ambiguous: false });
+        }
+      }
+    }
+    state.refToBom = refToBom;
+
+    const boardRefs = new Set(state.footprints.map(f => f.reference));
+    state.unmatchedBoard = state.bom ? state.footprints.filter(f => !refToBom.has(f.reference)) : [];
+    state.unplacedBom = [];
+    if (state.bom) {
+      for (const item of state.bom.items) {
+        const missing = item.refs.filter(r => !boardRefs.has(r));
+        if (missing.length) state.unplacedBom.push({ item, missing });
+      }
+    }
+  }
+
+  function renderIssues() {
+    if (!state.bom) {
+      issuesBody.className = "none";
+      issuesBody.innerHTML = "Load a BOM to check for mismatches.";
+      return;
+    }
+    if (state.bom.noRefColumn) {
+      issuesBody.className = "none";
+      issuesBody.innerHTML = "Couldn&rsquo;t find a reference/designator column in the BOM &mdash; matching is skipped.";
+      return;
+    }
+    const parts = [];
+    if (state.unmatchedBoard.length) {
+      parts.push('<div class="issue missing"><b>' + state.unmatchedBoard.length + '</b> designator(s) on the board have no BOM line: ' +
+        escapeHtml(state.unmatchedBoard.slice(0, 40).map(f => f.reference).join(", ")) +
+        (state.unmatchedBoard.length > 40 ? "&hellip;" : "") + "</div>");
+    }
+    if (state.unplacedBom.length) {
+      const allMissing = state.unplacedBom.flatMap(u => u.missing);
+      parts.push('<div class="issue"><b>' + allMissing.length + '</b> BOM reference(s) are not found on the board: ' +
+        escapeHtml(allMissing.slice(0, 40).join(", ")) + (allMissing.length > 40 ? "&hellip;" : "") + "</div>");
+    }
+    const ambiguous = [...state.refToBom.entries()].filter(([, v]) => v.ambiguous).map(([r]) => r);
+    if (ambiguous.length) {
+      parts.push('<div class="issue"><b>' + ambiguous.length + '</b> designator(s) appear on more than one BOM line: ' +
+        escapeHtml(ambiguous.slice(0, 40).join(", ")) + "</div>");
+    }
+    if (!parts.length) {
+      issuesBody.className = "none";
+      issuesBody.innerHTML = "Every board designator matches exactly one BOM line, and every BOM reference is placed. \u2713";
+    } else {
+      issuesBody.className = "";
+      issuesBody.innerHTML = parts.join("");
+    }
+  }
+
+  // ---------- file loading ----------
+  function markFile(btnId, ok, fname) {
+    const btn = document.getElementById(btnId);
+    btn.classList.remove("loaded", "error");
+    btn.classList.add(ok ? "loaded" : "error");
+    btn.querySelector(".fname").textContent = fname;
+  }
+
+  document.getElementById("input-pcb").addEventListener("change", (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = () => {
+      try {
+        const tree = parseSexp(reader.result);
+        if (!tree || (tree[0] !== "kicad_pcb")) throw new Error("not a kicad_pcb file");
+        state.footprints = extractFootprints(tree);
+        state.boardEdges = extractBoardEdges(tree);
+        if (!state.footprints.length) throw new Error("no footprints found");
+        markFile("btn-pcb", true, file.name);
+        computeMatching();
+        renderIssues();
+        renderList();
+        render();
+        fitToBoard();
+      } catch (err) {
+        markFile("btn-pcb", false, file.name + " \u2014 " + err.message);
+      }
+    };
+    reader.onerror = () => markFile("btn-pcb", false, file.name + " \u2014 could not read file");
+    reader.readAsText(file);
+  });
+
+  document.getElementById("input-bom").addEventListener("change", (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = () => {
+      try {
+        const parsed = parseBOM(reader.result);
+        if (!parsed.items.length) throw new Error("no rows found");
+        state.bom = parsed;
+        markFile("btn-bom", true, file.name + " (" + parsed.items.length + " lines)");
+        computeMatching();
+        renderIssues();
+        renderList();
+        render();
+      } catch (err) {
+        markFile("btn-bom", false, file.name + " \u2014 " + err.message);
+      }
+    };
+    reader.onerror = () => markFile("btn-bom", false, file.name + " \u2014 could not read file");
+    reader.readAsText(file);
+  });
+
+  document.getElementById("input-step").addEventListener("change", (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = () => {
+      try {
+        const arrayBuffer = reader.result;
+        const bytes = new Uint8Array(arrayBuffer);
+        const text = new TextDecoder("utf-8").decode(bytes);
+        state.stepBytes = bytes;
+        const bbox = parseStepBBox(text);
+        if (!bbox) throw new Error("no geometry points found");
+        markFile("btn-step", true, file.name);
+        stepBody.className = "";
+        stepBody.innerHTML =
+          '<div class="dims">' + bbox.dims.x.toFixed(2) + ' &times; ' + bbox.dims.y.toFixed(2) + ' &times; ' + bbox.dims.z.toFixed(2) + ' ' + bbox.unitLabel + '</div>' +
+          '<div class="note">Open the 3D Model tab above the board to see it rendered.</div>';
+        resetStep3D();
+        if (currentViewMode === "3d") ensure3DSceneLoaded();
+      } catch (err) {
+        markFile("btn-step", false, file.name + " \u2014 " + err.message);
+        stepBody.className = "note";
+        stepBody.textContent = "Could not read geometry from this STEP file.";
+        state.stepBytes = null;
+        resetStep3D();
+      }
+    };
+    reader.onerror = () => markFile("btn-step", false, file.name + " \u2014 could not read file");
+    reader.readAsArrayBuffer(file);
+  });
+
+  // ---------- 2D / 3D view tabs ----------
+  const tab2d = document.getElementById("tab-2d");
+  const tab3d = document.getElementById("tab-3d");
+  const pane2d = document.getElementById("view-2d");
+  const pane3d = document.getElementById("view-3d");
+  let currentViewMode = "2d";
+  function setViewMode(mode) {
+    currentViewMode = mode;
+    const is3d = mode === "3d";
+    tab2d.classList.toggle("active", !is3d);
+    tab3d.classList.toggle("active", is3d);
+    pane2d.classList.toggle("active", !is3d);
+    pane3d.classList.toggle("active", is3d);
+    if (is3d) ensure3DSceneLoaded();
+  }
+  tab2d.addEventListener("click", () => setViewMode("2d"));
+  tab3d.addEventListener("click", () => setViewMode("3d"));
+
+  // ---------- 3D STEP viewer (three.js + occt-import-js, loaded on demand) ----------
+  function loadScript(src) {
+    return new Promise((resolve, reject) => {
+      const s = document.createElement("script");
+      s.src = src;
+      s.onload = () => resolve();
+      s.onerror = () => reject(new Error("couldn't load " + src.split("/").pop()));
+      document.head.appendChild(s);
+    });
+  }
+  let occtModule = null;
+  async function ensureThree() {
+    if (window.THREE) return;
+    await loadScript("https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js");
+  }
+  async function ensureOcct() {
+    if (occtModule) return occtModule;
+    if (!window.occtimportjs) {
+      await loadScript("https://cdn.jsdelivr.net/npm/occt-import-js@0.0.21/dist/occt-import-js.js");
+    }
+    occtModule = await window.occtimportjs();
+    return occtModule;
+  }
+
+  const viewerStatus = document.getElementById("viewer3d-status");
+  const viewerCanvasWrap = document.getElementById("viewer3d-canvas-wrap");
+  const matchNote = document.getElementById("viewer3d-match-note");
+  let loadingStep3D = false;
+
+  function resetStep3D() {
+    if (state.step3D) { state.step3D.dispose(); state.step3D = null; }
+    viewerCanvasWrap.querySelectorAll("canvas").forEach(c => c.remove());
+    matchNote.style.display = "none";
+    viewerStatus.style.display = "flex";
+    viewerStatus.textContent = state.stepBytes ? "Not loaded yet \u2014 switch to this tab to load it." : "Load a STEP file to see it here.";
+  }
+
+  async function ensure3DSceneLoaded() {
+    if (!state.stepBytes || (state.step3D && state.step3D.built) || loadingStep3D) return;
+    loadingStep3D = true;
+    viewerStatus.style.display = "flex";
+    viewerStatus.textContent = "Loading 3D engine\u2026";
+    try {
+      await ensureThree();
+      viewerStatus.textContent = "Loading geometry engine\u2026";
+      const occt = await ensureOcct();
+      viewerStatus.textContent = "Parsing STEP geometry\u2026 this can take a while for complex models";
+      await new Promise(r => setTimeout(r, 30)); // let the status text paint before the sync WASM call
+      const result = occt.ReadStepFile(state.stepBytes, { linearUnit: "millimeter" });
+      if (!result || !result.success || !result.meshes || !result.meshes.length) {
+        throw new Error("no renderable geometry found in this STEP file");
+      }
+      viewerStatus.style.display = "none";
+      buildStep3DScene(result.meshes);
+    } catch (err) {
+      viewerStatus.style.display = "flex";
+      viewerStatus.textContent = "3D preview unavailable \u2014 " + err.message;
+    } finally {
+      loadingStep3D = false;
+    }
+  }
+
+  function extractRefFromName(name, knownRefs) {
+    if (!name) return null;
+    if (knownRefs.has(name)) return name;
+    const tokens = name.split(/[^A-Za-z0-9]+/).filter(Boolean);
+    for (const t of tokens) if (knownRefs.has(t)) return t;
+    return null;
+  }
+
+  function buildStep3DScene(meshes) {
+    if (state.step3D) { state.step3D.dispose(); state.step3D = null; }
+
+    const width = viewerCanvasWrap.clientWidth || 800;
+    const height = viewerCanvasWrap.clientHeight || 500;
+
+    const scene = new THREE.Scene();
+    scene.background = new THREE.Color(0x1b2123);
+    const camera = new THREE.PerspectiveCamera(45, width / height, 0.01, 1e6);
+    const renderer = new THREE.WebGLRenderer({ antialias: true });
+    renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
+    renderer.setSize(width, height);
+    viewerCanvasWrap.appendChild(renderer.domElement);
+
+    const group = new THREE.Group();
+    const knownRefs = new Set(state.footprints.map(f => f.reference));
+    const meshesByRef = new Map();
+    let minX = Infinity, minY = Infinity, minZ = Infinity, maxX = -Infinity, maxY = -Infinity, maxZ = -Infinity;
+    let matchedRefs = new Set();
+
+    for (const mesh of meshes) {
+      const posArr = mesh.attributes && mesh.attributes.position && mesh.attributes.position.array;
+      if (!posArr || !posArr.length) continue;
+      const geometry = new THREE.BufferGeometry();
+      geometry.setAttribute("position", new THREE.Float32BufferAttribute(posArr, 3));
+      if (mesh.attributes.normal && mesh.attributes.normal.array && mesh.attributes.normal.array.length) {
+        geometry.setAttribute("normal", new THREE.Float32BufferAttribute(mesh.attributes.normal.array, 3));
+      } else {
+        geometry.computeVertexNormals();
+      }
+      if (mesh.index && mesh.index.array && mesh.index.array.length) {
+        geometry.setIndex(Array.from(mesh.index.array));
+      }
+      let color = 0xb9bec2;
+      if (mesh.color && mesh.color.length === 3) {
+        color = new THREE.Color(mesh.color[0], mesh.color[1], mesh.color[2]);
+      }
+      const material = new THREE.MeshStandardMaterial({
+        color, metalness: 0.15, roughness: 0.55, side: THREE.DoubleSide,
+        transparent: true, opacity: 1, emissive: 0x000000,
+      });
+      const meshObj = new THREE.Mesh(geometry, material);
+      group.add(meshObj);
+
+      const ref = extractRefFromName(mesh.name, knownRefs);
+      if (ref) {
+        if (!meshesByRef.has(ref)) meshesByRef.set(ref, []);
+        meshesByRef.get(ref).push(meshObj);
+        matchedRefs.add(ref);
+      }
+
+      for (let i = 0; i < posArr.length; i += 3) {
+        minX = Math.min(minX, posArr[i]); maxX = Math.max(maxX, posArr[i]);
+        minY = Math.min(minY, posArr[i + 1]); maxY = Math.max(maxY, posArr[i + 1]);
+        minZ = Math.min(minZ, posArr[i + 2]); maxZ = Math.max(maxZ, posArr[i + 2]);
+      }
+    }
+    if (!isFinite(minX)) { viewerStatus.style.display = "flex"; viewerStatus.textContent = "No geometry vertices to display."; return; }
+
+    scene.add(group);
+    const cx = (minX + maxX) / 2, cy = (minY + maxY) / 2, cz = (minZ + maxZ) / 2;
+    const size = Math.max(maxX - minX, maxY - minY, maxZ - minZ, 1);
+
+    scene.add(new THREE.HemisphereLight(0xffffff, 0x22282a, 0.9));
+    const dir1 = new THREE.DirectionalLight(0xffffff, 0.8);
+    dir1.position.set(cx + size, cy + size * 1.4, cz + size);
+    scene.add(dir1);
+    const dir2 = new THREE.DirectionalLight(0xffffff, 0.35);
+    dir2.position.set(cx - size, cy - size * 0.5, cz - size * 0.6);
+    scene.add(dir2);
+
+    const grid = new THREE.GridHelper(size * 2.4, 12, 0x3a4448, 0x2a3235);
+    grid.position.set(cx, minY - size * 0.02, cz);
+    scene.add(grid);
+
+    const target = new THREE.Vector3(cx, cy, cz);
+    let radius = size * 2.3, theta = Math.PI / 3.2, phi = Math.PI / 3.4;
+    function updateCamera() {
+      camera.position.set(
+        target.x + radius * Math.sin(phi) * Math.sin(theta),
+        target.y + radius * Math.cos(phi),
+        target.z + radius * Math.sin(phi) * Math.cos(theta)
+      );
+      camera.up.set(0, 1, 0);
+      camera.lookAt(target);
+    }
+    updateCamera();
+
+    const dom = renderer.domElement;
+    dom.style.cursor = "grab";
+    dom.style.width = "100%";
+    dom.style.height = "100%";
+    let dragging = false, lastX = 0, lastY = 0;
+    function onDown(e) { dragging = true; lastX = e.clientX; lastY = e.clientY; dom.style.cursor = "grabbing"; dom.setPointerCapture(e.pointerId); }
+    function onMove(e) {
+      if (!dragging) return;
+      const dx = e.clientX - lastX, dy = e.clientY - lastY;
+      lastX = e.clientX; lastY = e.clientY;
+      theta -= dx * 0.006;
+      phi = Math.min(Math.max(phi - dy * 0.006, 0.05), Math.PI - 0.05);
+      updateCamera();
+    }
+    function onUp() { dragging = false; dom.style.cursor = "grab"; }
+    function onWheel(e) {
+      e.preventDefault();
+      radius *= e.deltaY < 0 ? 0.9 : 1.111;
+      radius = Math.max(size * 0.05, Math.min(radius, size * 15));
+      updateCamera();
+    }
+    dom.addEventListener("pointerdown", onDown);
+    dom.addEventListener("pointermove", onMove);
+    dom.addEventListener("pointerup", onUp);
+    dom.addEventListener("wheel", onWheel, { passive: false });
+
+    let raf;
+    function animate() { raf = requestAnimationFrame(animate); renderer.render(scene, camera); }
+    animate();
+
+    function onResize() {
+      const w = viewerCanvasWrap.clientWidth, h = viewerCanvasWrap.clientHeight;
+      if (!w || !h) return;
+      camera.aspect = w / h;
+      camera.updateProjectionMatrix();
+      renderer.setSize(w, h);
+    }
+    const resizeObs = new ResizeObserver(onResize);
+    resizeObs.observe(viewerCanvasWrap);
+
+    state.step3D = {
+      built: true,
+      meshesByRef,
+      matchedRefCount: matchedRefs.size,
+      defaultTarget: target.clone(),
+      defaultRadius: radius,
+      setTarget(newTarget, newRadius) {
+        target.copy(newTarget);
+        radius = Math.max(newRadius, size * 0.15);
+        updateCamera();
+      },
+      resetView() {
+        target.copy(state.step3D.defaultTarget);
+        radius = state.step3D.defaultRadius;
+        updateCamera();
+      },
+      dispose() {
+        cancelAnimationFrame(raf);
+        resizeObs.disconnect();
+        dom.removeEventListener("pointerdown", onDown);
+        dom.removeEventListener("pointermove", onMove);
+        dom.removeEventListener("pointerup", onUp);
+        dom.removeEventListener("wheel", onWheel);
+        group.traverse(o => { if (o.geometry) o.geometry.dispose(); if (o.material) o.material.dispose(); });
+        renderer.dispose();
+        if (dom.parentNode) dom.parentNode.removeChild(dom);
+      },
+    };
+    sync3DHighlight();
+  }
+
+  function sync3DHighlight() {
+    if (!state.step3D || !state.step3D.built) return;
+    const filter = state.filter.trim().toLowerCase();
+    for (const [ref, meshList] of state.step3D.meshesByRef.entries()) {
+      const bomEntry = state.refToBom.get(ref);
+      const fp = state.footprints.find(f => f.reference === ref);
+      const value = bomEntry ? bomEntry.item.value : (fp ? fp.valueFromPcb : "");
+      const matchesFilter = !filter || ref.toLowerCase().includes(filter) || (value || "").toLowerCase().includes(filter);
+      const isSelected = ref === state.selectedRef;
+      for (const meshObj of meshList) {
+        meshObj.material.opacity = matchesFilter ? 1 : 0.12;
+        meshObj.material.emissive.set(isSelected ? 0xc98a4b : 0x000000);
+        meshObj.material.emissiveIntensity = isSelected ? 0.55 : 0;
+      }
+    }
+    const total = state.footprints.length;
+    let msg = state.step3D.matchedRefCount + " of " + total + " board reference(s) matched to named parts in this STEP file.";
+    if (state.selectedRef) {
+      msg = (state.step3D.meshesByRef.has(state.selectedRef)
+        ? "Showing " + state.selectedRef + ". "
+        : "No matching 3D part found for " + state.selectedRef + " in this STEP file. ") + msg;
+    }
+    matchNote.textContent = msg;
+    matchNote.style.display = "block";
+  }
+
+  function focus3DOnRef(ref) {
+    if (!state.step3D || !state.step3D.built) return;
+    const meshList = state.step3D.meshesByRef.get(ref);
+    if (!meshList || !meshList.length) { sync3DHighlight(); return; }
+    const box = new THREE.Box3();
+    for (const meshObj of meshList) box.expandByObject(meshObj);
+    const center = box.getCenter(new THREE.Vector3());
+    const sizeVec = box.getSize(new THREE.Vector3());
+    const r = Math.max(sizeVec.length() * 2.2, 3);
+    state.step3D.setTarget(center, r);
+    sync3DHighlight();
+  }
+
+  document.getElementById("viewer3d-fit").addEventListener("click", () => {
+    if (state.step3D && state.step3D.built) state.step3D.resetView();
+  });
+
+  // ---------- controls ----------
+  document.getElementById("search").addEventListener("input", (e) => {
+    state.filter = e.target.value;
+    render();
+    renderList();
+  });
+  ["tog-top", "tog-bottom", "tog-labels"].forEach(id => {
+    document.getElementById(id).addEventListener("change", render);
+  });
+
+  svg.addEventListener("click", () => selectRef(null, false));
+
+  // pan / zoom
+  let dragging = false, dragStart = null, moved = false;
+  svg.addEventListener("pointerdown", (e) => {
+    dragging = true; moved = false;
+    dragStart = { x: e.clientX, y: e.clientY, vb: { ...viewBox } };
+    svg.classList.add("dragging");
+    svg.setPointerCapture(e.pointerId);
+  });
+  svg.addEventListener("pointermove", (e) => {
+    const rect = svg.getBoundingClientRect();
+    const ux = viewBox.x + (e.clientX - rect.left) / rect.width * viewBox.w;
+    const uy = viewBox.y + (e.clientY - rect.top) / rect.height * viewBox.h;
+    coordReadout.textContent = "x " + ux.toFixed(2) + "  y " + uy.toFixed(2) + " mm";
+    if (!dragging) return;
+    const dx = (e.clientX - dragStart.x) / rect.width * dragStart.vb.w;
+    const dy = (e.clientY - dragStart.y) / rect.height * dragStart.vb.h;
+    if (Math.abs(dx) + Math.abs(dy) > 0.02) moved = true;
+    viewBox.x = dragStart.vb.x - dx;
+    viewBox.y = dragStart.vb.y - dy;
+    applyViewBox();
+  });
+  window.addEventListener("pointerup", () => { dragging = false; svg.classList.remove("dragging"); });
+
+  svg.addEventListener("wheel", (e) => {
+    e.preventDefault();
+    const rect = svg.getBoundingClientRect();
+    const mx = viewBox.x + (e.clientX - rect.left) / rect.width * viewBox.w;
+    const my = viewBox.y + (e.clientY - rect.top) / rect.height * viewBox.h;
+    const scale = e.deltaY < 0 ? 0.88 : 1.14;
+    viewBox.x = mx - (mx - viewBox.x) * scale;
+    viewBox.y = my - (my - viewBox.y) * scale;
+    viewBox.w *= scale; viewBox.h *= scale;
+    applyViewBox();
+  }, { passive: false });
+
+  function zoomBy(scale) {
+    const cx = viewBox.x + viewBox.w / 2, cy = viewBox.y + viewBox.h / 2;
+    viewBox.w *= scale; viewBox.h *= scale;
+    viewBox.x = cx - viewBox.w / 2; viewBox.y = cy - viewBox.h / 2;
+    applyViewBox();
+  }
+  document.getElementById("zoom-in").addEventListener("click", () => zoomBy(0.8));
+  document.getElementById("zoom-out").addEventListener("click", () => zoomBy(1.25));
+  document.getElementById("zoom-fit").addEventListener("click", fitToBoard);
+
+  window.addEventListener("resize", () => { if (state.footprints.length) fitToBoard(); });
+})();
+</script>
+</body>
+</html>
